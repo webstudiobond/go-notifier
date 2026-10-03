@@ -432,6 +432,10 @@ func mockChmodWithPreclosedListener(_ string, _ os.FileMode) error {
 	return errors.New("simulated chmod error")
 }
 
+func mockFailingListen(_ context.Context, _ string) (net.Listener, error) {
+	return nil, errors.New("simulated listen error")
+}
+
 type failingAcceptListener struct {
 	net.Listener
 }
@@ -513,8 +517,10 @@ func TestServer_ListenAndServe_Success(t *testing.T) {
 
 func TestServer_ListenAndServe_Errors(t *testing.T) {
 	origChmod := socketChmod
+	origListen := socketListen
 	defer func() {
 		socketChmod = origChmod
+		socketListen = origListen
 		mockServerForChmod = nil
 	}()
 
@@ -557,8 +563,11 @@ func TestServer_ListenAndServe_Errors(t *testing.T) {
 		},
 		{
 			name:       "listen_on_unix_socket_error",
-			socketPath: "",
-			wantErr:    "listen on unix socket",
+			socketPath: shortSockPath,
+			setup: func(_ *Server) {
+				socketListen = mockFailingListen
+			},
+			wantErr: "listen on unix socket",
 		},
 		{
 			name:       "chmod_error_clean_close",
@@ -582,6 +591,7 @@ func TestServer_ListenAndServe_Errors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			socketChmod = origChmod
+			socketListen = origListen
 			mockServerForChmod = nil
 
 			srv := NewServer(&config.Config{SocketPath: tt.socketPath}, nil, nil)
@@ -739,5 +749,29 @@ func TestDefaultSocketChmod_Error(t *testing.T) {
 	err := defaultSocketChmod(filepath.Join(t.TempDir(), "nonexistent", "sock.sock"), 0o600)
 	if err == nil {
 		t.Fatalf("expected error from chmod on non-existent path")
+	}
+}
+
+func TestDefaultSocketListen(t *testing.T) {
+	sockPath := filepath.Join(".", "test_default_listen.sock")
+	defer func() {
+		if err := os.Remove(sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Logf("cleanup socket error: %v", err)
+		}
+	}()
+
+	ln, err := defaultSocketListen(t.Context(), sockPath)
+	if err != nil {
+		t.Fatalf("expected successful default listen: %v", err)
+	}
+	if closeErr := ln.Close(); closeErr != nil {
+		t.Fatalf("expected clean close: %v", closeErr)
+	}
+}
+
+func TestDefaultSocketListen_Error(t *testing.T) {
+	_, err := defaultSocketListen(t.Context(), filepath.Join(t.TempDir(), "nonexistent", "sock.sock"))
+	if err == nil {
+		t.Fatalf("expected error from listen on non-existent directory")
 	}
 }

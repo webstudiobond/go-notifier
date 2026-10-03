@@ -27,7 +27,19 @@ func defaultSocketChmod(name string, mode os.FileMode) error {
 	return nil
 }
 
-var socketChmod = defaultSocketChmod
+func defaultSocketListen(ctx context.Context, socketPath string) (net.Listener, error) {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "unix", socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("listen: %w", err)
+	}
+	return ln, nil
+}
+
+var (
+	socketChmod  = defaultSocketChmod
+	socketListen = defaultSocketListen
+)
 
 type responsePayload struct {
 	Status string `json:"status,omitempty"`
@@ -82,8 +94,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		return fmt.Errorf("remove stale socket: %w", err)
 	}
 
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "unix", s.socketPath)
+	ln, err := socketListen(ctx, s.socketPath)
 	if err != nil {
 		return fmt.Errorf("listen on unix socket %s: %w", s.socketPath, err)
 	}

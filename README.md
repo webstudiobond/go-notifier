@@ -55,7 +55,8 @@ Traditional web application email architectures introduce severe security liabil
 * **Granular Multi-Channel Dispatch:** Intelligently routes notifications across SMTP, Telegram, Matrix, and ntfy using subject regular expression matching, administrator recipient filtering (`admin_emails.txt`), and per-rule attachment forwarding policies.
 * **Startup Validation:** Validates channel credentials and routing rules on boot. If an active rule or default target references an unconfigured channel or disabled SMTP, the daemon terminates immediately with a descriptive error.
 
-### Universal Applicability Beyond WordPress
+<details>
+<summary><strong>Universal Applicability Beyond WordPress</strong></summary>
 
 Although designed for the [`wordpress-docker`](https://github.com/webstudiobond/wordpress-docker) runtime, `go-notifier` contains **no WordPress-specific dependencies, protocols, or logic**.
 
@@ -63,6 +64,8 @@ Any software stack capable of dispatching an HTTP POST request over a local Unix
 - **Modern Frameworks & Backends**: Laravel, Symfony, FastAPI, Django, Flask, Express, NestJS, Ruby on Rails, Go, or Rust services.
 - **Zero-MTA / Distroless Environments**: Ideal for distroless or minimal Alpine/Debian images where installing full MTA suites is prohibited by security policy.
 - **Microservices & Kubernetes Sidecars**: Functions as a shared sidecar container within a Kubernetes Pod or Docker Compose project, abstracting TLS handshakes, rate limiting, and push messenger routing away from core application code.
+
+</details>
 
 ---
 
@@ -247,10 +250,12 @@ NOTIFY_RULE_ORDERS_ATTACHMENTS=false
 
 ---
 
+<details>
+<summary><strong>Deployment & Setup</strong></summary>
+
 ## Deployment & Setup (Docker Compose)
 
-<details>
-<summary><strong>Directory Structure</strong></summary>
+### Directory Structure
 
 ```text
 ├── docker-compose.yaml              # Production deployment manifest
@@ -272,18 +277,13 @@ NOTIFY_RULE_ORDERS_ATTACHMENTS=false
 │   └── ntfy_token.txt               # Optional: ntfy Bearer authentication token
 ```
 
-</details>
+### Step-by-Step Deployment Guide
 
----
-
-<details>
-<summary><strong>Step-by-Step Deployment Guide</strong></summary>
-
-### Prerequisites
+#### Prerequisites
 
 * **Docker Engine & Compose:** Ensure Docker Engine and Docker Compose plugin are installed on the host. Follow the official installation guide for [Ubuntu](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository).
 
-### 1. Identify or Create Dedicated System User
+#### 1. Identify or Create Dedicated System User
 
 For multi-tenant isolation and security compliance, run `go-notifier` under a dedicated unprivileged user (matching your web application worker):
 
@@ -301,7 +301,7 @@ APP_GID=$(id -g ${SITE_USER})
 
 *(If deploying within an existing application directory without creating a new user, inspect your current user: `SITE_USER=$(whoami); APP_UID=$(id -u); APP_GID=$(id -g)`)*
 
-### 2. Create Directory Structure
+#### 2. Create Directory Structure
 
 Create the secrets directory with owner-only access:
 
@@ -310,7 +310,7 @@ sudo -u ${SITE_USER} mkdir -p /home/${SITE_USER}/secrets
 sudo chmod 0700 /home/${SITE_USER}/secrets
 ```
 
-### 3. Generate Secrets
+#### 3. Generate Secrets
 
 Create the secret files for your configured channels:
 
@@ -353,7 +353,7 @@ Lock secret files with strict read-only permissions:
 sudo chmod 0400 /home/${SITE_USER}/secrets/*.txt
 ```
 
-### 4. Download Compose Manifest and Environment Files
+#### 4. Download Compose Manifest and Environment Files
 
 Download configuration templates directly from the repository using `curl`:
 
@@ -365,7 +365,7 @@ sudo -u ${SITE_USER} curl -fsSL ${REPO}/example.env -o /home/${SITE_USER}/.env
 sudo -u ${SITE_USER} curl -fsSL ${REPO}/notifier.env.example -o /home/${SITE_USER}/notifier.env
 ```
 
-### 5. Configure Environment
+#### 5. Configure Environment
 
 Edit `.env` to supply `SITE_USER`, `APP_UID`, and `APP_GID` identified in Step 1:
 
@@ -375,7 +375,7 @@ sudo -u ${SITE_USER} nano /home/${SITE_USER}/.env
 
 See [example.env](example.env) for all available variables.
 
-### 6. (Optional) Configure Routing & Channels
+#### 6. (Optional) Configure Routing & Channels
 
 Customize active channels, rate limits, and regex routing rules in `notifier.env`:
 
@@ -385,7 +385,7 @@ sudo -u ${SITE_USER} nano /home/${SITE_USER}/notifier.env
 
 See [notifier.env.example](notifier.env.example) for all available options, channels, and regex routing rules.
 
-### 7. Set Permissions
+#### 7. Set Permissions
 
 Enforce strict ownership and access rights across the deployment directory:
 
@@ -397,7 +397,7 @@ sudo chmod 0600 /home/${SITE_USER}/.env
 [ -f /home/${SITE_USER}/notifier.env ] && sudo chmod 0600 /home/${SITE_USER}/notifier.env
 ```
 
-### 8. Start the Stack
+#### 8. Start the Stack
 
 Pull the scratch image and start the service:
 
