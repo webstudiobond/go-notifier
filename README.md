@@ -26,6 +26,9 @@ Traditional web application email architectures introduce severe security liabil
 
 `go-notifier` decouples notification and mail transport into an isolated, unprivileged scratch sidecar:
 
+<details>
+<summary><strong>Architecture</strong></summary>
+
 ```
 [ Application (PHP / Python / Node / Go) ]
         │
@@ -40,6 +43,10 @@ Traditional web application email architectures introduce severe security liabil
         ├── Matrix Homeserver API (HTTPS)
         └── ntfy Endpoint (HTTPS)
 ```
+
+</details>
+
+---
 
 * **Shell-less Scratch Container:** Statically compiled Go binary (`CGO_ENABLED=0`) running in an empty `scratch` image with trusted CA certificates. No shell binaries, no package manager, zero local attack surface.
 * **Pure UNIX Domain Socket IPC:** Zero exposed TCP network ports to Docker bridge or host. Communication occurs strictly over an in-memory Unix domain socket (`notify.sock`) shared via tmpfs with `0600` permissions restricted to matching UID/GID (`APP_UID:APP_GID`).
@@ -59,6 +66,9 @@ Any software stack capable of dispatching an HTTP POST request over a local Unix
 
 ---
 
+<details>
+<summary><strong>Supported Channels & Protocols</strong></summary>
+
 ## Supported Channels & Protocols
 
 | Channel | Protocol | Transport Security | Payload Support |
@@ -68,7 +78,12 @@ Any software stack capable of dispatching an HTTP POST request over a local Unix
 | **Matrix** | Client-Server API v3 | TLS 1.3 (Direct Homeserver endpoint) | Plain / HTML Text, `m.file` Events |
 | **ntfy** | HTTP POST | TLS 1.3 (Self-hosted or `ntfy.sh`) | Plain Text, Binary Attachments |
 
+</details>
+
 ---
+
+<details>
+<summary><strong>API Specification</strong></summary>
 
 ## API Specification
 
@@ -144,7 +159,12 @@ curl --unix-socket /var/run/sockets/notify.sock http://_/healthz
 {"status":"ok"}
 ```
 
+</details>
+
 ---
+
+<details>
+<summary><strong>Configuration Reference</strong></summary>
 
 ## Configuration Reference
 
@@ -173,7 +193,12 @@ The interaction between `NOTIFY_SMTP_ENABLED` and `NOTIFY_ADMIN_FILTER_REQUIRED`
 | **Open Multi-Channel** | `true` | `false` | SMTP is mandatory. Recipient filtering is disabled. All messages route to matched rule targets or `NOTIFY_CHANNELS` (both SMTP and messengers). |
 | **Push-Only Sidecar (No SMTP)** | `false` | `*` (Ignored) | SMTP is completely disabled; all SMTP secrets and channels are ignored. Messages dispatch strictly to messengers (Telegram, Matrix, ntfy). Recipient filtering is bypassed. |
 
+</details>
+
 ---
+
+<details>
+<summary><strong>Granular Routing Engine</strong></summary>
 
 ## Granular Routing Engine
 
@@ -217,6 +242,8 @@ NOTIFY_RULE_ORDERS_MATCH="(?i)new order|order #[0-9]+"
 NOTIFY_RULE_ORDERS_TARGETS="smtp,telegram"
 NOTIFY_RULE_ORDERS_ATTACHMENTS=false
 ```
+
+</details>
 
 ---
 
@@ -397,11 +424,17 @@ To stop the service:
 docker compose -f /home/${SITE_USER}/docker-compose.yaml down
 ```
 
-</details>
-
 ### Example: Standalone Push Sidecar (No SMTP, Pure Messengers)
 
 For microservices and environments requiring only push alerts (Telegram, Matrix, ntfy) without SMTP relay infrastructure:
 1. In `notifier.env`, set `NOTIFY_SMTP_ENABLED=false`.
 2. In `docker-compose.yaml`, comment out the 4 `smtp_*` secret entries under `secrets:`.
 3. Provide required messenger secrets in `secrets/`.
+
+</details>
+
+---
+
+## Development & Testing
+
+For instructions on building from source, running the test suite, and local verification gates, refer to [DEVELOPMENT](DEVELOPMENT.md).
