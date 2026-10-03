@@ -22,12 +22,12 @@ Traditional web application email architectures introduce severe security liabil
 
 ---
 
+<details>
+<summary><strong>Architecture</strong></summary>
+
 ## Architecture Highlights
 
 `go-notifier` decouples notification and mail transport into an isolated, unprivileged scratch sidecar:
-
-<details>
-<summary><strong>Architecture</strong></summary>
 
 ```
 [ Application (PHP / Python / Node / Go) ]
@@ -44,10 +44,6 @@ Traditional web application email architectures introduce severe security liabil
         └── ntfy Endpoint (HTTPS)
 ```
 
-</details>
-
----
-
 * **Shell-less Scratch Container:** Statically compiled Go binary (`CGO_ENABLED=0`) running in an empty `scratch` image with trusted CA certificates. No shell binaries, no package manager, zero local attack surface.
 * **Pure UNIX Domain Socket IPC:** Zero exposed TCP network ports to Docker bridge or host. Communication occurs strictly over an in-memory Unix domain socket (`notify.sock`) shared via tmpfs with `0600` permissions restricted to matching UID/GID (`APP_UID:APP_GID`).
 * **Zero-Privilege Security Profile:** Immutable root filesystem (`read_only: true`), all Linux capabilities dropped (`cap_drop: [ALL]`), no capabilities added (`cap_add: []`), privilege escalation blocked (`no-new-privileges: true`), and strict resource limits (64 MB RAM, 0.5 CPU, 30 PIDs).
@@ -55,8 +51,7 @@ Traditional web application email architectures introduce severe security liabil
 * **Granular Multi-Channel Dispatch:** Intelligently routes notifications across SMTP, Telegram, Matrix, and ntfy using subject regular expression matching, administrator recipient filtering (`admin_emails.txt`), and per-rule attachment forwarding policies.
 * **Startup Validation:** Validates channel credentials and routing rules on boot. If an active rule or default target references an unconfigured channel or disabled SMTP, the daemon terminates immediately with a descriptive error.
 
-<details>
-<summary><strong>Universal Applicability Beyond WordPress</strong></summary>
+### Universal Applicability Beyond WordPress
 
 Although designed for the [`wordpress-docker`](https://github.com/webstudiobond/wordpress-docker) runtime, `go-notifier` contains **no WordPress-specific dependencies, protocols, or logic**.
 
@@ -435,6 +430,11 @@ For microservices and environments requiring only push alerts (Telegram, Matrix,
 
 ---
 
+<details>
+<summary><strong>Development</strong></summary>
+
 ## Development & Testing
 
 For instructions on building from source, running the test suite, and local verification gates, refer to [DEVELOPMENT](DEVELOPMENT.md).
+
+</details>
