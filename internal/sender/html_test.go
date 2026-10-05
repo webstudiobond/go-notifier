@@ -87,9 +87,9 @@ func TestHTMLToPlainText_Table(t *testing.T) {
 			expected: "Link: https://example.net/direct",
 		},
 		{
-			name:     "anchor_and_javascript_links_skipped",
-			input:    `<p><a href="#top">Back to top</a> and <a href="javascript:void(0)">Do nothing</a></p>`,
-			expected: "Back to top and Do nothing",
+			name:     "anchor_and_dangerous_scheme_links_skipped",
+			input:    `<p><a href="#top">Back to top</a>, <a href="javascript:alert(1)">JS</a>, <a href="vbscript:msgbox(1)">VBS</a>, <a href="data:text/html;base64,PHNjcmlwdD4=">Data</a></p>`,
+			expected: "Back to top, JS, VBS, Data",
 		},
 		{
 			name:     "image_with_alt_text",

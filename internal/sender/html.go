@@ -222,7 +222,11 @@ func appendCellInlineBreak(sb *strings.Builder) {
 
 func handleAnchorClose(sb *strings.Builder, startPos int, href string) {
 	cleanHref := strings.TrimSpace(href)
-	if cleanHref == "" || strings.HasPrefix(cleanHref, "#") || strings.HasPrefix(strings.ToLower(cleanHref), "javascript:") {
+	lowerHref := strings.ToLower(cleanHref)
+	if cleanHref == "" || strings.HasPrefix(cleanHref, "#") ||
+		strings.HasPrefix(lowerHref, "javascript:") ||
+		strings.HasPrefix(lowerHref, "vbscript:") ||
+		strings.HasPrefix(lowerHref, "data:") {
 		return
 	}
 	currentText := sb.String()
