@@ -90,10 +90,15 @@ func hasHTMLAttachment(attachments []sender.Attachment) bool {
 }
 
 func prepareMessengerMessage(msg *sender.Message, sendAttachments bool) *sender.Message {
+	bodyText := msg.BodyText
+	if bodyText == "" && msg.BodyHTML != "" {
+		bodyText = sender.HTMLToPlainText(msg.BodyHTML)
+	}
+
 	res := &sender.Message{
 		To:          slices.Clone(msg.To),
 		Subject:     msg.Subject,
-		BodyText:    msg.BodyText,
+		BodyText:    bodyText,
 		BodyHTML:    "",
 		Attachments: slices.Clone(msg.Attachments),
 	}
@@ -110,10 +115,6 @@ func prepareMessengerMessage(msg *sender.Message, sendAttachments bool) *sender.
 
 // Dispatch concurrently routes and delivers a message to all resolved channels.
 func (r *Router) Dispatch(ctx context.Context, msg *sender.Message) error {
-	if msg.BodyText == "" && msg.BodyHTML != "" {
-		msg.BodyText = sender.HTMLToPlainText(msg.BodyHTML)
-	}
-
 	targets, sendAttachments := r.ResolveTargets(msg)
 	if len(targets) == 0 {
 		return errors.New("no active channels resolved for delivery")

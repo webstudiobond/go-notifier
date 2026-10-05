@@ -1059,6 +1059,49 @@ func TestExtractDomain(t *testing.T) {
 	}
 }
 
+func TestExtractHostDomain(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		fallback string
+		want     string
+	}{
+		{
+			name:     "host_with_port",
+			host:     "mail.example.org:587",
+			fallback: "admin@example.net",
+			want:     "mail.example.org",
+		},
+		{
+			name:     "host_without_port",
+			host:     "smtp.example.net",
+			fallback: "admin@example.org",
+			want:     "smtp.example.net",
+		},
+		{
+			name:     "empty_host_fallback_to_mail",
+			host:     "",
+			fallback: "ops@alpha.example.com",
+			want:     "alpha.example.com",
+		},
+		{
+			name:     "empty_host_and_fallback",
+			host:     "",
+			fallback: "",
+			want:     "example.invalid",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractHostDomain(tt.host, tt.fallback)
+			if got != tt.want {
+				t.Errorf("extractHostDomain(%q, %q) = %q, want %q", tt.host, tt.fallback, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSMTPSender_GenerateMessageID(t *testing.T) {
 	cfg := config.SMTPConfig{
 		Mail: "service@example.org",
@@ -1073,7 +1116,7 @@ func TestSMTPSender_GenerateMessageID(t *testing.T) {
 		t.Fatalf("expected unique message IDs, got duplicate %q", mid1)
 	}
 
-	re := regexp.MustCompile(`^<\d+\.[0-9a-f]{24}@example\.org>$`)
+	re := regexp.MustCompile(`^<\d+\.[0-9a-f]{24}@smtp\.example\.org>$`)
 	if !re.MatchString(mid1) {
 		t.Errorf("mid1 %q does not match expected RFC 5322 format", mid1)
 	}
@@ -1125,11 +1168,11 @@ func TestSMTPSender_BuildMIMEMessage_MessageID(t *testing.T) {
 		t.Fatalf("expected different Message-ID headers, got %q", mid1)
 	}
 
-	if !strings.HasPrefix(mid1, "<") || !strings.HasSuffix(mid1, "@example.net>") {
-		t.Errorf("expected Message-ID format <...@example.net>, got %q", mid1)
+	if !strings.HasPrefix(mid1, "<") || !strings.HasSuffix(mid1, "@mail.example.net>") {
+		t.Errorf("expected Message-ID format <...@mail.example.net>, got %q", mid1)
 	}
-	if !strings.HasPrefix(mid2, "<") || !strings.HasSuffix(mid2, "@example.net>") {
-		t.Errorf("expected Message-ID format <...@example.net>, got %q", mid2)
+	if !strings.HasPrefix(mid2, "<") || !strings.HasSuffix(mid2, "@mail.example.net>") {
+		t.Errorf("expected Message-ID format <...@mail.example.net>, got %q", mid2)
 	}
 }
 
@@ -1211,8 +1254,8 @@ func TestSMTPSender_Send_MessageIDHeaderOverWire(t *testing.T) {
 	if mid1 == mid2 {
 		t.Fatalf("expected distinct Message-IDs, got duplicate %q", mid1)
 	}
-	if !strings.HasSuffix(mid1, "@example.com>") || !strings.HasSuffix(mid2, "@example.com>") {
-		t.Errorf("expected Message-IDs to end with @example.com>, got %q and %q", mid1, mid2)
+	if !strings.HasSuffix(mid1, "@127.0.0.3>") || !strings.HasSuffix(mid2, "@127.0.0.3>") {
+		t.Errorf("expected Message-IDs to end with @127.0.0.3>, got %q and %q", mid1, mid2)
 	}
 }
 
@@ -1233,32 +1276,34 @@ func TestSMTPSender_BuildMIMEMessage_HTMLStructure(t *testing.T) {
 		assertOrder  bool
 	}{
 		{
-			name:     "html_only_generates_alternative_with_plain_first",
+			name:     "html_only_generates_single_part_html",
 			subject:  "HTML Only Alert",
 			bodyText: "",
 			bodyHTML: "<p>Important <strong>security</strong> update.</p>",
 			wantContains: []string{
-				"Content-Type: multipart/alternative",
-				"Content-Type: text/plain",
-				"Content-Type: text/html",
+				"Content-Type: text/html; charset=UTF-8",
 				"Content-Transfer-Encoding: quoted-printable",
-				"Important security update.",
+				"<p>Important <strong>security</strong> update.</p>",
 			},
-			assertOrder: true,
+			assertOrder: false,
 		},
 		{
-			name:     "html_with_caller_text_preserves_caller_text",
+			name:     "dual_body_generates_alternative_with_plain_first",
 			subject:  "Dual Body Alert",
 			bodyText: "Caller verbatim plain text",
 			bodyHTML: "<p>Original HTML representation</p>",
 			wantContains: []string{
+				"Content-Type: multipart/alternative",
+				"Content-Type: text/plain",
+				"Content-Type: text/html",
 				"Caller verbatim plain text",
 				"Original HTML representation",
 				"Content-Transfer-Encoding: quoted-printable",
 			},
+			assertOrder: true,
 		},
 		{
-			name:     "html_with_attachments_generates_mixed_containing_alternative",
+			name:     "html_only_with_attachments_generates_mixed_containing_html",
 			subject:  "HTML With Attachment",
 			bodyText: "",
 			bodyHTML: "<p>Report summary.</p>",
@@ -1270,9 +1315,27 @@ func TestSMTPSender_BuildMIMEMessage_HTMLStructure(t *testing.T) {
 				},
 			},
 			wantContains: []string{
+				"Content-Type: multipart/mixed; boundary=",
+				"Content-Type: text/html; charset=UTF-8",
+				"filename=\"report.pdf\"",
+			},
+		},
+		{
+			name:     "dual_body_with_attachments_generates_mixed_containing_alternative",
+			subject:  "Dual Body With Attachment",
+			bodyText: "Caller plain text summary",
+			bodyHTML: "<p>Report summary.</p>",
+			attachments: []Attachment{
+				{
+					Filename:      "audit.csv",
+					MIMEType:      "text/csv",
+					ContentBase64: "Y3N2",
+				},
+			},
+			wantContains: []string{
 				"Content-Type: multipart/mixed",
 				"Content-Type: multipart/alternative",
-				"filename=\"report.pdf\"",
+				"filename=\"audit.csv\"",
 			},
 		},
 		{

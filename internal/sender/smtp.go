@@ -228,10 +228,24 @@ func extractDomain(addr, fallback string) string {
 	return "example.invalid"
 }
 
+func extractHostDomain(host, fallbackAddr string) string {
+	cleanHost := strings.TrimSpace(host)
+	if cleanHost != "" {
+		h, _, err := net.SplitHostPort(cleanHost)
+		if err == nil && h != "" {
+			return strings.ToLower(h)
+		}
+		if cleanHost != "" {
+			return strings.ToLower(cleanHost)
+		}
+	}
+	return extractDomain(fallbackAddr, "")
+}
+
 func (s *SMTPSender) generateMessageID() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
-	domain := extractDomain(s.cfg.Mail, s.cfg.Host)
+	domain := extractHostDomain(s.cfg.Host, s.cfg.Mail)
 	return fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), hex.EncodeToString(b), domain)
 }
 
@@ -295,9 +309,6 @@ func (s *SMTPSender) buildMIMEMessage(msg *Message) []byte {
 
 	bodyText := msg.BodyText
 	bodyHTML := msg.BodyHTML
-	if bodyText == "" && bodyHTML != "" {
-		bodyText = HTMLToPlainText(bodyHTML)
-	}
 
 	if len(msg.Attachments) > 0 {
 		mixedBoundary := s.generateBoundary()
@@ -305,7 +316,8 @@ func (s *SMTPSender) buildMIMEMessage(msg *Message) []byte {
 		sb.WriteString(mixedBoundary)
 		sb.WriteString("\"\r\n\r\n")
 
-		if bodyHTML != "" {
+		switch {
+		case bodyHTML != "" && bodyText != "":
 			altBoundary := s.generateBoundary()
 			sb.WriteString("--")
 			sb.WriteString(mixedBoundary)
@@ -318,7 +330,13 @@ func (s *SMTPSender) buildMIMEMessage(msg *Message) []byte {
 			sb.WriteString("--")
 			sb.WriteString(altBoundary)
 			sb.WriteString("--\r\n")
-		} else {
+		case bodyHTML != "":
+			sb.WriteString("--")
+			sb.WriteString(mixedBoundary)
+			sb.WriteString("\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
+			sb.WriteString(encodeQuotedPrintable(bodyHTML))
+			sb.WriteString("\r\n")
+		default:
 			sb.WriteString("--")
 			sb.WriteString(mixedBoundary)
 			sb.WriteString("\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
@@ -339,7 +357,7 @@ func (s *SMTPSender) buildMIMEMessage(msg *Message) []byte {
 		return []byte(sb.String())
 	}
 
-	if bodyHTML != "" {
+	if bodyHTML != "" && bodyText != "" {
 		altBoundary := s.generateBoundary()
 		sb.WriteString("Content-Type: multipart/alternative; boundary=\"")
 		sb.WriteString(altBoundary)
@@ -350,6 +368,12 @@ func (s *SMTPSender) buildMIMEMessage(msg *Message) []byte {
 		sb.WriteString("--")
 		sb.WriteString(altBoundary)
 		sb.WriteString("--\r\n")
+		return []byte(sb.String())
+	}
+
+	if bodyHTML != "" {
+		sb.WriteString("Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
+		sb.WriteString(encodeQuotedPrintable(bodyHTML))
 		return []byte(sb.String())
 	}
 

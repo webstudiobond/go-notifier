@@ -561,10 +561,6 @@ func TestRouter_Dispatch_HTMLHandling(t *testing.T) {
 				t.Fatalf("unexpected Dispatch error: %v", err)
 			}
 
-			if msg.BodyText != tt.wantBodyText {
-				t.Errorf("msg.BodyText = %q, want %q", msg.BodyText, tt.wantBodyText)
-			}
-
 			hasHTMLAtt := func(atts []sender.Attachment) bool {
 				for _, a := range atts {
 					if a.Filename == "message.html" {
@@ -581,6 +577,13 @@ func TestRouter_Dispatch_HTMLHandling(t *testing.T) {
 
 			if smtpPayload == nil || messengerPayload == nil {
 				t.Fatalf("expected both channels to receive payload")
+			}
+
+			if messengerPayload.BodyText != tt.wantBodyText {
+				t.Errorf("messengerPayload.BodyText = %q, want %q", messengerPayload.BodyText, tt.wantBodyText)
+			}
+			if smtpPayload.BodyText != tt.initialText {
+				t.Errorf("smtpPayload.BodyText = %q, want %q", smtpPayload.BodyText, tt.initialText)
 			}
 
 			if gotSMTPAtt := hasHTMLAtt(smtpPayload.Attachments); gotSMTPAtt != tt.wantSMTPHTMLAtt {
