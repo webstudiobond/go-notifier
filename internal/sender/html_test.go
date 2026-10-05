@@ -132,9 +132,14 @@ func TestHTMLToPlainText_Table(t *testing.T) {
 			expected: "Anchor empty attribute",
 		},
 		{
-			name:     "long_bullet_item_multiline_wrap",
-			input:    "<ul><li>Alpha item with long description that goes well beyond the seventy eight character line limit to test indented line continuation for unordered list items</li></ul>",
-			expected: "* Alpha item with long description that goes well beyond the seventy eight\n  character line limit to test indented line continuation for unordered list\n  items",
+			name:     "long_bullet_item_unbroken",
+			input:    "<ul><li>Alpha item with long description that goes well beyond seventy eight characters without artificial line wrapping for unordered list items</li></ul>",
+			expected: "* Alpha item with long description that goes well beyond seventy eight characters without artificial line wrapping for unordered list items",
+		},
+		{
+			name:     "leading_and_trailing_blank_lines_stripped",
+			input:    "<br><br><p>Middle content</p><br><br>",
+			expected: "Middle content",
 		},
 	}
 
@@ -148,23 +153,16 @@ func TestHTMLToPlainText_Table(t *testing.T) {
 	}
 }
 
-func TestHTMLToPlainText_WordWrap(t *testing.T) {
+func TestHTMLToPlainText_LongLinesPreserved(t *testing.T) {
 	longURL := "https://service.example.org/audit/report/incident/2026/security/investigation/deep/link"
-	longText := "<p>This is a notification with a very long sentence that exceeds the standard seventy-eight character limit of the line wrap helper and includes a URL: " + longURL + " followed by additional explanations.</p>"
+	longText := "<p>This is a notification with a very long sentence that does not split into artificial lines and includes a URL: " + longURL + " followed by additional explanations.</p>"
 
 	res := HTMLToPlainText(longText)
 	lines := strings.Split(res, "\n")
-
-	foundURL := false
-	for _, l := range lines {
-		if strings.Contains(l, longURL) {
-			foundURL = true
-		}
-		if len(l) > 78 && !strings.Contains(l, longURL) {
-			t.Errorf("line exceeds 78 characters without containing long URL: %q (len %d)", l, len(l))
-		}
+	if len(lines) != 1 {
+		t.Errorf("expected paragraph to remain a single unbroken line, got %d lines: %q", len(lines), res)
 	}
-	if !foundURL {
+	if !strings.Contains(res, longURL) {
 		t.Errorf("expected unbroken URL %q in output: %s", longURL, res)
 	}
 }
@@ -220,31 +218,6 @@ func TestExtractAttr_EdgeCases(t *testing.T) {
 			got := extractAttr(tt.tag, "href")
 			if got != tt.expected {
 				t.Errorf("extractAttr() = %q, want %q", got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestWrapSingleLine_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-		maxCol   int
-	}{
-		{
-			name:     "all_whitespace_exceeding_max_col",
-			input:    strings.Repeat(" ", 80),
-			expected: nil,
-			maxCol:   78,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := wrapSingleLine(tt.input, tt.maxCol)
-			if len(got) != len(tt.expected) {
-				t.Errorf("wrapSingleLine() = %v, want %v", got, tt.expected)
 			}
 		})
 	}

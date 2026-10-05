@@ -13,7 +13,7 @@ func HTMLToPlainText(rawHTML string) string {
 	}
 	parsed := parseHTMLTags(rawHTML)
 	unescaped := html.UnescapeString(parsed)
-	return cleanAndWrapText(unescaped, 78)
+	return cleanLines(unescaped)
 }
 
 type htmlParser struct {
@@ -300,7 +300,7 @@ func extractAttr(tag, attrName string) string {
 	return html.UnescapeString(strings.TrimSuffix(valPart, "/"))
 }
 
-func cleanAndWrapText(text string, maxCol int) string {
+func cleanLines(text string) string {
 	lines := strings.Split(text, "\n")
 	var result []string
 	prevBlank := false
@@ -317,8 +317,7 @@ func cleanAndWrapText(text string, maxCol int) string {
 		prevBlank = false
 
 		collapsed := collapseInlineSpaces(trimmed)
-		wrapped := wrapSingleLine(collapsed, maxCol)
-		result = append(result, wrapped...)
+		result = append(result, collapsed)
 	}
 
 	for len(result) > 0 && result[len(result)-1] == "" {
@@ -343,42 +342,4 @@ func collapseInlineSpaces(s string) string {
 		}
 	}
 	return sb.String()
-}
-
-func wrapSingleLine(line string, maxCol int) []string {
-	if len(line) <= maxCol {
-		return []string{line}
-	}
-	words := strings.Fields(line)
-	if len(words) == 0 {
-		return nil
-	}
-
-	isBullet := strings.HasPrefix(line, "* ")
-	var (
-		lines []string
-		cur   strings.Builder
-	)
-
-	for _, w := range words {
-		if cur.Len() == 0 {
-			cur.WriteString(w)
-			continue
-		}
-		if cur.Len()+1+len(w) <= maxCol {
-			cur.WriteByte(' ')
-			cur.WriteString(w)
-		} else {
-			lines = append(lines, cur.String())
-			cur.Reset()
-			if isBullet {
-				cur.WriteString("  ")
-			}
-			cur.WriteString(w)
-		}
-	}
-	if cur.Len() > 0 {
-		lines = append(lines, cur.String())
-	}
-	return lines
 }
