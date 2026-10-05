@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/smtp"
 	"net/textproto"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -225,6 +226,7 @@ func mockFailingWriteCleanCloseWriter(_ *smtp.Client) (io.WriteCloser, error) {
 
 type mockSMTPOptions struct {
 	serverTLSConfig *tls.Config
+	dataSink        func([]string)
 	authErr         bool
 	mailErr         bool
 	rcptErr         bool
@@ -293,6 +295,7 @@ func handleMockData(conn net.Conn, reader *textproto.Reader, opts mockSMTPOption
 	if err := writeMockLine(conn, "354 End data with <CR><LF>.<CR><LF>\r\n"); err != nil {
 		return err
 	}
+	var lines []string
 	for {
 		dataLine, dErr := reader.ReadLine()
 		if dErr != nil {
@@ -307,6 +310,12 @@ func handleMockData(conn net.Conn, reader *textproto.Reader, opts mockSMTPOption
 		if dataLine == "." {
 			break
 		}
+		if opts.dataSink != nil {
+			lines = append(lines, dataLine)
+		}
+	}
+	if opts.dataSink != nil {
+		opts.dataSink(lines)
 	}
 	if opts.dataCloseErr {
 		return writeMockLine(conn, "554 5.6.0 Transaction failed\r\n")
@@ -980,5 +989,229 @@ func TestSMTPSender_ExecuteSMTPTransaction_Errors(t *testing.T) {
 				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestExtractDomain(t *testing.T) {
+	tests := []struct {
+		name     string
+		addr     string
+		fallback string
+		want     string
+	}{
+		{
+			name:     "standard_email",
+			addr:     "user@example.com",
+			fallback: "fallback.example.org",
+			want:     "example.com",
+		},
+		{
+			name:     "name_and_address",
+			addr:     "\"Test User\" <user@example.org>",
+			fallback: "fallback.example.net",
+			want:     "example.org",
+		},
+		{
+			name:     "subdomain_address",
+			addr:     "notify@sub.example.net",
+			fallback: "fallback.example.com",
+			want:     "sub.example.net",
+		},
+		{
+			name:     "uppercase_domain",
+			addr:     "admin@UPPER.EXAMPLE.ORG",
+			fallback: "fallback.example.com",
+			want:     "upper.example.org",
+		},
+		{
+			name:     "invalid_address_host_port",
+			addr:     "invalid-addr-1",
+			fallback: "mail.example.org:587",
+			want:     "mail.example.org",
+		},
+		{
+			name:     "invalid_address_host_only",
+			addr:     "invalid-addr-2",
+			fallback: "mail.example.com",
+			want:     "mail.example.com",
+		},
+		{
+			name:     "empty_address_with_fallback",
+			addr:     "",
+			fallback: "fallback-empty.example.org",
+			want:     "fallback-empty.example.org",
+		},
+		{
+			name:     "empty_address_and_fallback",
+			addr:     "",
+			fallback: "",
+			want:     "example.invalid",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractDomain(tt.addr, tt.fallback)
+			if got != tt.want {
+				t.Errorf("extractDomain(%q, %q) = %q, want %q", tt.addr, tt.fallback, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSMTPSender_GenerateMessageID(t *testing.T) {
+	cfg := config.SMTPConfig{
+		Mail: "service@example.org",
+		Host: "smtp.example.org",
+	}
+	s := NewSMTPSender(&cfg, "Example Site")
+
+	mid1 := s.generateMessageID()
+	mid2 := s.generateMessageID()
+
+	if mid1 == mid2 {
+		t.Fatalf("expected unique message IDs, got duplicate %q", mid1)
+	}
+
+	re := regexp.MustCompile(`^<\d+\.[0-9a-f]{24}@example\.org>$`)
+	if !re.MatchString(mid1) {
+		t.Errorf("mid1 %q does not match expected RFC 5322 format", mid1)
+	}
+	if !re.MatchString(mid2) {
+		t.Errorf("mid2 %q does not match expected RFC 5322 format", mid2)
+	}
+}
+
+func TestSMTPSender_BuildMIMEMessage_MessageID(t *testing.T) {
+	cfg := config.SMTPConfig{
+		Mail: "dispatcher@example.net",
+		Host: "mail.example.net",
+	}
+	sender := NewSMTPSender(&cfg, "Notification Hub")
+
+	msg1 := &Message{
+		To:       []string{"recipient1@example.com"},
+		Subject:  "First Subject",
+		BodyText: "First Body",
+	}
+	msg2 := &Message{
+		To:       []string{"recipient2@example.com"},
+		Subject:  "Second Subject",
+		BodyText: "Second Body",
+	}
+
+	raw1 := string(sender.buildMIMEMessage(msg1))
+	raw2 := string(sender.buildMIMEMessage(msg2))
+
+	extractMID := func(raw string) string {
+		for line := range strings.SplitSeq(raw, "\r\n") {
+			if rest, ok := strings.CutPrefix(line, "Message-ID: "); ok {
+				return rest
+			}
+		}
+		return ""
+	}
+
+	mid1 := extractMID(raw1)
+	mid2 := extractMID(raw2)
+
+	if mid1 == "" {
+		t.Fatal("expected Message-ID header in first message")
+	}
+	if mid2 == "" {
+		t.Fatal("expected Message-ID header in second message")
+	}
+	if mid1 == mid2 {
+		t.Fatalf("expected different Message-ID headers, got %q", mid1)
+	}
+
+	if !strings.HasPrefix(mid1, "<") || !strings.HasSuffix(mid1, "@example.net>") {
+		t.Errorf("expected Message-ID format <...@example.net>, got %q", mid1)
+	}
+	if !strings.HasPrefix(mid2, "<") || !strings.HasSuffix(mid2, "@example.net>") {
+		t.Errorf("expected Message-ID format <...@example.net>, got %q", mid2)
+	}
+}
+
+func TestSMTPSender_Send_MessageIDHeaderOverWire(t *testing.T) {
+	tlsCert, certPool := generateTestCertificate(t)
+	sharedTestCertPool = certPool
+
+	serverTLSConfig := &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	var capturedLines [][]string
+	currentMockOpts = mockSMTPOptions{
+		serverTLSConfig: serverTLSConfig,
+		implicitTLS:     true,
+		dataSink: func(lines []string) {
+			capturedLines = append(capturedLines, lines)
+		},
+	}
+
+	origTLSConfig := newTLSConfig
+	defer func() { newTLSConfig = origTLSConfig }()
+	newTLSConfig = mockTestTLSConfig
+
+	origDial := smtpDialContext
+	defer func() { smtpDialContext = origDial }()
+	smtpDialContext = mockPipeDialContext
+
+	cfg := config.SMTPConfig{
+		Host:     "127.0.0.3",
+		Port:     465,
+		Mail:     "wire-sender@example.com",
+		Password: "wire-password",
+		FromName: "Wire Sender",
+	}
+	sender := NewSMTPSender(&cfg, "Wire Site")
+
+	msg1 := &Message{
+		To:       []string{"wire-rcpt1@example.org"},
+		Subject:  "Wire Test 1",
+		BodyText: "Wire Body 1",
+	}
+	if err := sender.Send(context.Background(), msg1, false); err != nil {
+		t.Fatalf("first Send failed: %v", err)
+	}
+
+	msg2 := &Message{
+		To:       []string{"wire-rcpt2@example.org"},
+		Subject:  "Wire Test 2",
+		BodyText: "Wire Body 2",
+	}
+	if err := sender.Send(context.Background(), msg2, false); err != nil {
+		t.Fatalf("second Send failed: %v", err)
+	}
+
+	if len(capturedLines) != 2 {
+		t.Fatalf("expected 2 captured messages, got %d", len(capturedLines))
+	}
+
+	findMID := func(lines []string) string {
+		for _, line := range lines {
+			if rest, ok := strings.CutPrefix(line, "Message-ID: "); ok {
+				return rest
+			}
+		}
+		return ""
+	}
+
+	mid1 := findMID(capturedLines[0])
+	mid2 := findMID(capturedLines[1])
+
+	if mid1 == "" {
+		t.Fatal("expected Message-ID header in first delivered message")
+	}
+	if mid2 == "" {
+		t.Fatal("expected Message-ID header in second delivered message")
+	}
+	if mid1 == mid2 {
+		t.Fatalf("expected distinct Message-IDs, got duplicate %q", mid1)
+	}
+	if !strings.HasSuffix(mid1, "@example.com>") || !strings.HasSuffix(mid2, "@example.com>") {
+		t.Errorf("expected Message-IDs to end with @example.com>, got %q and %q", mid1, mid2)
 	}
 }

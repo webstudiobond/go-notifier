@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -198,6 +199,35 @@ func (s *SMTPSender) executeSMTPTransaction(ctx context.Context, client *smtp.Cl
 	return nil
 }
 
+func extractDomain(addr, fallback string) string {
+	parsed, err := mail.ParseAddress(addr)
+	target := addr
+	if err == nil {
+		target = parsed.Address
+	}
+	if atIdx := strings.LastIndex(target, "@"); atIdx != -1 && atIdx+1 < len(target) {
+		domain := strings.Trim(target[atIdx+1:], "> ")
+		if domain != "" {
+			return strings.ToLower(domain)
+		}
+	}
+	if fallback != "" {
+		host, _, err := net.SplitHostPort(fallback)
+		if err == nil {
+			return strings.ToLower(host)
+		}
+		return strings.ToLower(fallback)
+	}
+	return "example.invalid"
+}
+
+func (s *SMTPSender) generateMessageID() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	domain := extractDomain(s.cfg.Mail, s.cfg.Host)
+	return fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), hex.EncodeToString(b), domain)
+}
+
 func (s *SMTPSender) generateBoundary() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
@@ -234,6 +264,8 @@ func (s *SMTPSender) buildMIMEMessage(msg *Message) []byte {
 	sb.WriteString(encodeMIMEHeader(msg.Subject))
 	sb.WriteString("\r\nDate: ")
 	sb.WriteString(time.Now().Format(time.RFC1123Z))
+	sb.WriteString("\r\nMessage-ID: ")
+	sb.WriteString(s.generateMessageID())
 	sb.WriteString("\r\nMIME-Version: 1.0\r\n")
 
 	if msg.ReplyTo != "" {
