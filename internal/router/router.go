@@ -3,6 +3,7 @@ package router
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
@@ -79,24 +80,48 @@ func (r *Router) ResolveTargets(msg *sender.Message) (targets []string, sendAtta
 	return r.defaultChannels, false
 }
 
+func hasHTMLAttachment(attachments []sender.Attachment) bool {
+	for _, att := range attachments {
+		if strings.HasSuffix(strings.ToLower(att.Filename), ".html") || strings.EqualFold(att.MIMEType, "text/html") {
+			return true
+		}
+	}
+	return false
+}
+
+func prepareMessengerMessage(msg *sender.Message, sendAttachments bool) *sender.Message {
+	if !sendAttachments || msg.BodyHTML == "" || hasHTMLAttachment(msg.Attachments) {
+		return msg
+	}
+	cloned := *msg
+	htmlAtt := sender.Attachment{
+		Filename:      "message.html",
+		MIMEType:      "text/html",
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte(msg.BodyHTML)),
+	}
+	cloned.Attachments = make([]sender.Attachment, 0, len(msg.Attachments)+1)
+	cloned.Attachments = append(cloned.Attachments, msg.Attachments...)
+	cloned.Attachments = append(cloned.Attachments, htmlAtt)
+	return &cloned
+}
+
 // Dispatch concurrently routes and delivers a message to all resolved channels.
 func (r *Router) Dispatch(ctx context.Context, msg *sender.Message) error {
+	if msg.BodyText == "" && msg.BodyHTML != "" {
+		msg.BodyText = sender.HTMLToPlainText(msg.BodyHTML)
+	}
+
 	targets, sendAttachments := r.ResolveTargets(msg)
 	if len(targets) == 0 {
 		return errors.New("no active channels resolved for delivery")
 	}
 
-	if slices.Contains(targets, "smtp") && len(msg.To) == 0 {
+	smtpIdx := slices.Index(targets, "smtp")
+	if smtpIdx >= 0 && len(msg.To) == 0 {
 		if len(targets) == 1 {
 			return ErrMissingSMTPRecipients
 		}
-		filtered := make([]string, 0, len(targets)-1)
-		for _, t := range targets {
-			if t != "smtp" {
-				filtered = append(filtered, t)
-			}
-		}
-		targets = filtered
+		targets = slices.Delete(slices.Clone(targets), smtpIdx, smtpIdx+1)
 	}
 
 	var wg sync.WaitGroup
@@ -109,15 +134,20 @@ func (r *Router) Dispatch(ctx context.Context, msg *sender.Message) error {
 			continue
 		}
 
+		targetMsg := msg
+		if targetName != "smtp" {
+			targetMsg = prepareMessengerMessage(msg, sendAttachments)
+		}
+
 		wg.Add(1)
-		go func(drv sender.Sender) {
+		go func(drv sender.Sender, payload *sender.Message) {
 			defer wg.Done()
-			if err := drv.Send(ctx, msg, sendAttachments); err != nil {
+			if err := drv.Send(ctx, payload, sendAttachments); err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("sender %s error: %w", drv.Name(), err))
 				errMu.Unlock()
 			}
-		}(s)
+		}(s, targetMsg)
 	}
 
 	wg.Wait()

@@ -1215,3 +1215,167 @@ func TestSMTPSender_Send_MessageIDHeaderOverWire(t *testing.T) {
 		t.Errorf("expected Message-IDs to end with @example.com>, got %q and %q", mid1, mid2)
 	}
 }
+
+func TestSMTPSender_BuildMIMEMessage_HTMLStructure(t *testing.T) {
+	cfg := config.SMTPConfig{
+		Host: "smtp-struct.example.com",
+		Mail: "sender-struct@example.com",
+	}
+	sender := NewSMTPSender(&cfg, "MIME Structure Site")
+
+	tests := []struct {
+		name         string
+		subject      string
+		bodyText     string
+		bodyHTML     string
+		attachments  []Attachment
+		wantContains []string
+		assertOrder  bool
+	}{
+		{
+			name:     "html_only_generates_alternative_with_plain_first",
+			subject:  "HTML Only Alert",
+			bodyText: "",
+			bodyHTML: "<p>Important <strong>security</strong> update.</p>",
+			wantContains: []string{
+				"Content-Type: multipart/alternative",
+				"Content-Type: text/plain",
+				"Content-Type: text/html",
+				"Content-Transfer-Encoding: quoted-printable",
+				"Important security update.",
+			},
+			assertOrder: true,
+		},
+		{
+			name:     "html_with_caller_text_preserves_caller_text",
+			subject:  "Dual Body Alert",
+			bodyText: "Caller verbatim plain text",
+			bodyHTML: "<p>Original HTML representation</p>",
+			wantContains: []string{
+				"Caller verbatim plain text",
+				"Original HTML representation",
+				"Content-Transfer-Encoding: quoted-printable",
+			},
+		},
+		{
+			name:     "html_with_attachments_generates_mixed_containing_alternative",
+			subject:  "HTML With Attachment",
+			bodyText: "",
+			bodyHTML: "<p>Report summary.</p>",
+			attachments: []Attachment{
+				{
+					Filename:      "report.pdf",
+					MIMEType:      "application/pdf",
+					ContentBase64: "cGRmZGF0YQ==",
+				},
+			},
+			wantContains: []string{
+				"Content-Type: multipart/mixed",
+				"Content-Type: multipart/alternative",
+				"filename=\"report.pdf\"",
+			},
+		},
+		{
+			name:     "text_only_with_attachments_generates_mixed_without_alternative",
+			subject:  "Text With Attachment",
+			bodyText: "Only plain text",
+			attachments: []Attachment{
+				{
+					Filename:      "image.png",
+					MIMEType:      "image/png",
+					ContentBase64: "dGV4dA==",
+				},
+			},
+			wantContains: []string{
+				"Content-Type: multipart/mixed",
+				"Only plain text",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := &Message{
+				To:          []string{"rcpt-struct@example.org"},
+				Subject:     tt.subject,
+				BodyText:    tt.bodyText,
+				BodyHTML:    tt.bodyHTML,
+				Attachments: tt.attachments,
+			}
+			raw := string(sender.buildMIMEMessage(msg))
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(raw, want) {
+					t.Errorf("expected %q in raw message, got: %s", want, raw)
+				}
+			}
+
+			if tt.assertOrder {
+				plainIdx := strings.Index(raw, "Content-Type: text/plain")
+				htmlIdx := strings.Index(raw, "Content-Type: text/html")
+				if plainIdx == -1 || htmlIdx == -1 || plainIdx >= htmlIdx {
+					t.Errorf("expected text/plain before text/html according to RFC 2046, got plain=%d html=%d", plainIdx, htmlIdx)
+				}
+			}
+		})
+	}
+}
+
+type mockFailingWriteCloser struct {
+	writeErr error
+	closeErr error
+}
+
+func (m *mockFailingWriteCloser) Write(p []byte) (int, error) {
+	if m.writeErr != nil {
+		return 0, m.writeErr
+	}
+	return len(p), nil
+}
+
+func (m *mockFailingWriteCloser) Close() error {
+	return m.closeErr
+}
+
+func mockQuotedPrintableWriteError(_ io.Writer) io.WriteCloser {
+	return &mockFailingWriteCloser{writeErr: errors.New("write failure")}
+}
+
+func mockQuotedPrintableCloseError(_ io.Writer) io.WriteCloser {
+	return &mockFailingWriteCloser{closeErr: errors.New("close failure")}
+}
+
+func TestEncodeQuotedPrintable_Errors(t *testing.T) {
+	tests := []struct {
+		hook     func(io.Writer) io.WriteCloser
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "write_error_returns_raw_string",
+			hook:     mockQuotedPrintableWriteError,
+			input:    "raw string for write error",
+			expected: "raw string for write error",
+		},
+		{
+			name:     "close_error_returns_raw_string",
+			hook:     mockQuotedPrintableCloseError,
+			input:    "raw string for close error",
+			expected: "raw string for close error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := newQuotedPrintableWriter
+			defer func() { newQuotedPrintableWriter = orig }()
+			newQuotedPrintableWriter = tt.hook
+
+			got := encodeQuotedPrintable(tt.input)
+			if got != tt.expected {
+				t.Errorf("encodeQuotedPrintable() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}

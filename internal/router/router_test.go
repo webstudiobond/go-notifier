@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"regexp"
 	"slices"
@@ -360,6 +361,28 @@ func TestRouter_Dispatch_PureMessengers(t *testing.T) {
 	}
 }
 
+func createSMTPSenderMap(extraCh string, receivedMsgs map[string]*sender.Message, mu *sync.Mutex) (channels []string, senders map[string]sender.Sender) {
+	channels = []string{"smtp"}
+	if extraCh != "" {
+		channels = append(channels, extraCh)
+	}
+
+	senders = make(map[string]sender.Sender, len(channels))
+	for _, ch := range channels {
+		chName := ch
+		senders[chName] = &mockSender{
+			name: chName,
+			sendFunc: func(_ context.Context, m *sender.Message, _ bool) error {
+				mu.Lock()
+				receivedMsgs[chName] = m
+				mu.Unlock()
+				return nil
+			},
+		}
+	}
+	return channels, senders
+}
+
 func TestRouter_Dispatch_SMTPScenarios(t *testing.T) {
 	tests := []struct {
 		expectedErr error
@@ -381,26 +404,9 @@ func TestRouter_Dispatch_SMTPScenarios(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var mu sync.Mutex
-			delivered := make(map[string]bool)
+			delivered := make(map[string]*sender.Message)
 
-			channels := []string{"smtp"}
-			if tt.extraCh != "" {
-				channels = append(channels, tt.extraCh)
-			}
-
-			senders := make(map[string]sender.Sender, len(channels))
-			for _, ch := range channels {
-				chName := ch
-				senders[chName] = &mockSender{
-					name: chName,
-					sendFunc: func(_ context.Context, _ *sender.Message, _ bool) error {
-						mu.Lock()
-						delivered[chName] = true
-						mu.Unlock()
-						return nil
-					},
-				}
-			}
+			channels, senders := createSMTPSenderMap(tt.extraCh, delivered, &mu)
 
 			cfg := &config.Config{
 				DefaultChannels:     channels,
@@ -429,12 +435,162 @@ func TestRouter_Dispatch_SMTPScenarios(t *testing.T) {
 			defer mu.Unlock()
 			for _, ch := range channels {
 				if tt.skipFirst && ch == channels[0] {
-					if delivered[ch] {
+					if delivered[ch] != nil {
 						t.Errorf("expected channel %s to be skipped", ch)
 					}
-				} else if !delivered[ch] {
+				} else if delivered[ch] == nil {
 					t.Errorf("expected channel %s to be delivered", ch)
 				}
+			}
+		})
+	}
+}
+
+func TestRouter_Dispatch_HTMLHandling(t *testing.T) {
+	tests := []struct {
+		name                 string
+		messengerCh          string
+		initialText          string
+		initialHTML          string
+		wantBodyText         string
+		recipient            string
+		initialAttachments   []sender.Attachment
+		routeAttachments     bool
+		wantMessengerHTMLAtt bool
+		wantSMTPHTMLAtt      bool
+	}{
+		{
+			name:                 "html_only_generates_plain_text_and_attaches_to_messenger_when_enabled",
+			messengerCh:          "stream-telegram",
+			recipient:            "admin@alpha.example",
+			routeAttachments:     true,
+			initialHTML:          "<h2>Security Notice</h2><p>Login from IP</p>",
+			wantBodyText:         "Security Notice\n\nLogin from IP",
+			wantMessengerHTMLAtt: true,
+			wantSMTPHTMLAtt:      false,
+		},
+		{
+			name:                 "explicit_text_is_preserved_and_not_overwritten",
+			messengerCh:          "stream-matrix",
+			recipient:            "admin@beta.example",
+			routeAttachments:     true,
+			initialText:          "Explicit verbatim text",
+			initialHTML:          "<p>HTML content</p>",
+			wantBodyText:         "Explicit verbatim text",
+			wantMessengerHTMLAtt: true,
+			wantSMTPHTMLAtt:      false,
+		},
+		{
+			name:                 "attachments_disabled_does_not_attach_html_to_messenger",
+			messengerCh:          "stream-ntfy",
+			recipient:            "admin@gamma.example",
+			routeAttachments:     false,
+			initialHTML:          "<p>Message body</p>",
+			wantBodyText:         "Message body",
+			wantMessengerHTMLAtt: false,
+			wantSMTPHTMLAtt:      false,
+		},
+		{
+			name:             "existing_html_filename_attachment_prevents_duplicate",
+			messengerCh:      "stream-chat",
+			recipient:        "admin@delta.example",
+			routeAttachments: true,
+			initialText:      "Initial unformatted body",
+			initialHTML:      "<p>Body</p>",
+			initialAttachments: []sender.Attachment{
+				{
+					Filename:      "message.html",
+					MIMEType:      "text/html",
+					ContentBase64: base64.StdEncoding.EncodeToString([]byte("<p>Body</p>")),
+				},
+			},
+			wantBodyText:         "Initial unformatted body",
+			wantMessengerHTMLAtt: true,
+			wantSMTPHTMLAtt:      true,
+		},
+		{
+			name:             "existing_html_mimetype_attachment_prevents_duplicate",
+			messengerCh:      "stream-push",
+			recipient:        "admin@epsilon.example",
+			routeAttachments: true,
+			initialText:      "Another pre-existing text",
+			initialHTML:      "<p>Body</p>",
+			initialAttachments: []sender.Attachment{
+				{
+					Filename:      "report.doc",
+					MIMEType:      "text/html",
+					ContentBase64: base64.StdEncoding.EncodeToString([]byte("<p>Body</p>")),
+				},
+			},
+			wantBodyText:         "Another pre-existing text",
+			wantMessengerHTMLAtt: false,
+			wantSMTPHTMLAtt:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
+			receivedMsgs := make(map[string]*sender.Message)
+
+			channels, senders := createSMTPSenderMap(tt.messengerCh, receivedMsgs, &mu)
+
+			cfg := &config.Config{
+				DefaultChannels:     channels,
+				SMTPEnabled:         true,
+				AdminFilterRequired: false,
+				Routes: []config.RouteRule{
+					{
+						MatchRegex:      regexp.MustCompile(`.*`),
+						Targets:         channels,
+						SendAttachments: tt.routeAttachments,
+					},
+				},
+			}
+
+			r := NewRouter(cfg, senders)
+			msg := &sender.Message{
+				To:          []string{tt.recipient},
+				Subject:     "Broadcast alert",
+				BodyText:    tt.initialText,
+				BodyHTML:    tt.initialHTML,
+				Attachments: tt.initialAttachments,
+			}
+
+			if err := r.Dispatch(context.Background(), msg); err != nil {
+				t.Fatalf("unexpected Dispatch error: %v", err)
+			}
+
+			if msg.BodyText != tt.wantBodyText {
+				t.Errorf("msg.BodyText = %q, want %q", msg.BodyText, tt.wantBodyText)
+			}
+
+			hasHTMLAtt := func(atts []sender.Attachment) bool {
+				for _, a := range atts {
+					if a.Filename == "message.html" {
+						return true
+					}
+				}
+				return false
+			}
+
+			mu.Lock()
+			smtpPayload := receivedMsgs[channels[0]]
+			messengerPayload := receivedMsgs[tt.messengerCh]
+			mu.Unlock()
+
+			if smtpPayload == nil || messengerPayload == nil {
+				t.Fatalf("expected both channels to receive payload")
+			}
+
+			if gotSMTPAtt := hasHTMLAtt(smtpPayload.Attachments); gotSMTPAtt != tt.wantSMTPHTMLAtt {
+				t.Errorf("SMTP hasHTMLAtt = %v, want %v", gotSMTPAtt, tt.wantSMTPHTMLAtt)
+			}
+			if gotMessengerAtt := hasHTMLAtt(messengerPayload.Attachments); gotMessengerAtt != tt.wantMessengerHTMLAtt {
+				t.Errorf("Messenger hasHTMLAtt = %v, want %v", gotMessengerAtt, tt.wantMessengerHTMLAtt)
+			}
+			if len(tt.initialAttachments) > 0 && len(messengerPayload.Attachments) != 1 {
+				t.Errorf("Messenger attachments count = %d, want 1", len(messengerPayload.Attachments))
 			}
 		})
 	}
