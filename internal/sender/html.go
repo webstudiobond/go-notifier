@@ -232,7 +232,6 @@ func handleAnchorClose(sb *strings.Builder, startPos int, href string) {
 	currentText := sb.String()
 	linkText := strings.TrimSpace(currentText[startPos:])
 	if linkText == "" {
-		sb.WriteString(cleanHref)
 		return
 	}
 	cleanTrimmed := strings.TrimRight(cleanHref, "/")

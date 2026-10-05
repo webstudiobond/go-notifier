@@ -90,19 +90,22 @@ func hasHTMLAttachment(attachments []sender.Attachment) bool {
 }
 
 func prepareMessengerMessage(msg *sender.Message, sendAttachments bool) *sender.Message {
-	if !sendAttachments || msg.BodyHTML == "" || hasHTMLAttachment(msg.Attachments) {
-		return msg
+	res := &sender.Message{
+		To:          slices.Clone(msg.To),
+		Subject:     msg.Subject,
+		BodyText:    msg.BodyText,
+		BodyHTML:    "",
+		Attachments: slices.Clone(msg.Attachments),
 	}
-	cloned := *msg
-	htmlAtt := sender.Attachment{
-		Filename:      "message.html",
-		MIMEType:      "text/html",
-		ContentBase64: base64.StdEncoding.EncodeToString([]byte(msg.BodyHTML)),
+
+	if sendAttachments && msg.BodyHTML != "" && !hasHTMLAttachment(res.Attachments) {
+		res.Attachments = append(res.Attachments, sender.Attachment{
+			Filename:      "message.html",
+			MIMEType:      "text/html",
+			ContentBase64: base64.StdEncoding.EncodeToString([]byte(msg.BodyHTML)),
+		})
 	}
-	cloned.Attachments = make([]sender.Attachment, 0, len(msg.Attachments)+1)
-	cloned.Attachments = append(cloned.Attachments, msg.Attachments...)
-	cloned.Attachments = append(cloned.Attachments, htmlAtt)
-	return &cloned
+	return res
 }
 
 // Dispatch concurrently routes and delivers a message to all resolved channels.

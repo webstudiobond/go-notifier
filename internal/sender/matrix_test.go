@@ -65,6 +65,46 @@ func TestMatrixSender_FormatMessage(t *testing.T) {
 			wantPlain: "First line",
 			wantFmt:   "&lt;tag&gt;",
 		},
+		{
+			name: "full_html_doctype_falls_back_to_escaped",
+			msg: Message{
+				Subject:  "Notice DocType",
+				BodyText: "Doctype clean body",
+				BodyHTML: "<!DOCTYPE html><html><body>Content</body></html>",
+			},
+			wantPlain: "Doctype clean",
+			wantFmt:   "clean body",
+		},
+		{
+			name: "full_html_tag_falls_back_to_escaped",
+			msg: Message{
+				Subject:  "Notice HTML",
+				BodyText: "Html tag clean payload",
+				BodyHTML: "<HTML><BODY>Content</BODY></HTML>",
+			},
+			wantPlain: "Html tag clean",
+			wantFmt:   "clean payload",
+		},
+		{
+			name: "full_html_head_tag_falls_back_to_escaped",
+			msg: Message{
+				Subject:  "Notice Head",
+				BodyText: "Head tag clean description",
+				BodyHTML: "<head><title>Test</title></head>",
+			},
+			wantPlain: "Head tag clean",
+			wantFmt:   "clean description",
+		},
+		{
+			name: "full_html_body_tag_falls_back_to_escaped",
+			msg: Message{
+				Subject:  "Notice Body",
+				BodyText: "Body tag clean information",
+				BodyHTML: "<body>Content only</body>",
+			},
+			wantPlain: "Body tag clean",
+			wantFmt:   "clean information",
+		},
 	}
 
 	for _, tt := range tests {

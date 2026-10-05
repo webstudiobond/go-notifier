@@ -106,7 +106,7 @@ func (s *MatrixSender) formatMessage(msg *Message) (plain, formatted string) {
 	fmtBuilder.WriteString(html.EscapeString(msg.Subject))
 	fmtBuilder.WriteString("<br><br>")
 
-	if msg.BodyHTML != "" {
+	if msg.BodyHTML != "" && !isFullHTMLDocument(msg.BodyHTML) {
 		fmtBuilder.WriteString(msg.BodyHTML)
 	} else {
 		escaped := html.EscapeString(content)
@@ -114,6 +114,14 @@ func (s *MatrixSender) formatMessage(msg *Message) (plain, formatted string) {
 	}
 
 	return plainBuilder.String(), fmtBuilder.String()
+}
+
+func isFullHTMLDocument(s string) bool {
+	lower := strings.ToLower(s)
+	return strings.Contains(lower, "<!doctype") ||
+		strings.Contains(lower, "<html") ||
+		strings.Contains(lower, "<head") ||
+		strings.Contains(lower, "<body")
 }
 
 func (s *MatrixSender) generateTxnID() string {

@@ -84,7 +84,7 @@ func TestHTMLToPlainText_Table(t *testing.T) {
 		{
 			name:     "link_with_empty_text",
 			input:    `<p>Link: <a href="https://example.net/direct"></a></p>`,
-			expected: "Link: https://example.net/direct",
+			expected: "Link:",
 		},
 		{
 			name:     "anchor_and_dangerous_scheme_links_skipped",

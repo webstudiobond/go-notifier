@@ -589,6 +589,12 @@ func TestRouter_Dispatch_HTMLHandling(t *testing.T) {
 			if gotMessengerAtt := hasHTMLAtt(messengerPayload.Attachments); gotMessengerAtt != tt.wantMessengerHTMLAtt {
 				t.Errorf("Messenger hasHTMLAtt = %v, want %v", gotMessengerAtt, tt.wantMessengerHTMLAtt)
 			}
+			if messengerPayload.BodyHTML != "" {
+				t.Errorf("messenger BodyHTML = %q, want empty", messengerPayload.BodyHTML)
+			}
+			if smtpPayload.BodyHTML != tt.initialHTML {
+				t.Errorf("smtp BodyHTML = %q, want %q", smtpPayload.BodyHTML, tt.initialHTML)
+			}
 			if len(tt.initialAttachments) > 0 && len(messengerPayload.Attachments) != 1 {
 				t.Errorf("Messenger attachments count = %d, want 1", len(messengerPayload.Attachments))
 			}
