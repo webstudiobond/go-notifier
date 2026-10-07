@@ -31,7 +31,7 @@ services:
       - smtp_mail
       - smtp_password
     volumes:
-      - sockets:/var/run/sockets
+      - sockets_notify:/var/run/sockets/notify
       - ./secrets:/etc/notifier/secrets:ro
       - /etc/localtime:/etc/localtime:ro
     logging:
@@ -51,9 +51,9 @@ secrets:
     file: ./secrets/smtp_password.txt
 
 volumes:
-  sockets:
+  sockets_notify:
     driver: local
     driver_opts:
       type: tmpfs
       device: tmpfs
-      o: "size=16m,mode=0700,uid=${APP_UID},gid=${APP_GID},noexec,nosuid,nodev"
+      o: "size=4m,mode=0700,uid=${APP_UID},gid=${APP_GID},noexec,nosuid,nodev"

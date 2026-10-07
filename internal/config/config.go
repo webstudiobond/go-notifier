@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultSocketPath         = "/var/run/sockets/notify.sock"
+	defaultSocketPath         = "/var/run/sockets/notify/notify.sock"
 	defaultRateLimitPerMinute = 10
 	defaultBurstLimit         = 5
 	defaultMaxAttachmentMB    = 10

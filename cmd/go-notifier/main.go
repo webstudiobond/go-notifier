@@ -23,7 +23,7 @@ import (
 const (
 	defaultMandatoryStoreDir = "/run/secrets"
 	defaultOptionalStoreDir  = "/etc/notifier/secrets"
-	defaultSocketPath        = "/var/run/sockets/notify.sock"
+	defaultSocketPath        = "/var/run/sockets/notify/notify.sock"
 	healthcheckTimeout       = 3 * time.Second
 	shutdownTimeout          = 5 * time.Second
 )

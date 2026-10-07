@@ -33,7 +33,7 @@ Traditional web application email architectures introduce severe security liabil
 [ Application (PHP / Python / Node / Go) ]
         │
         │ HTTP / JSON over Unix Domain Socket
-        ▼ (/var/run/sockets/notify.sock - mode 0600)
+        ▼ (/var/run/sockets/notify/notify.sock - mode 0600)
 [ go-notifier (scratch daemon) ]
    ├── Rate Limiting (Token Bucket)
    ├── Recipient Filter (admin_emails check)
@@ -85,7 +85,7 @@ Any software stack capable of dispatching an HTTP POST request over a local Unix
 
 ## API Specification
 
-The daemon listens on the configured Unix domain socket (`/var/run/sockets/notify.sock`).
+The daemon listens on the configured Unix domain socket (`/var/run/sockets/notify/notify.sock`).
 
 ### `POST /notify` (or `POST /`)
 
@@ -133,7 +133,7 @@ Content-Type: application/json
 
 #### Example: Client Dispatch via Unix Socket
 ```bash
-curl --unix-socket /var/run/sockets/notify.sock http://_/notify \
+curl --unix-socket /var/run/sockets/notify/notify.sock http://_/notify \
   -H "Content-Type: application/json" \
   -d '{
     "subject": "System Security Alert",
@@ -149,7 +149,7 @@ curl --unix-socket /var/run/sockets/notify.sock http://_/notify \
 Liveness probe endpoint.
 
 ```bash
-curl --unix-socket /var/run/sockets/notify.sock http://_/healthz
+curl --unix-socket /var/run/sockets/notify/notify.sock http://_/healthz
 ```
 
 #### Response
@@ -410,7 +410,7 @@ docker compose -f /home/${SITE_USER}/docker-compose.yaml logs -f notifier
 Verify service liveness via the Unix domain socket:
 
 ```bash
-curl --unix-socket /var/run/sockets/notify.sock http://_/healthz
+curl --unix-socket /var/run/sockets/notify/notify.sock http://_/healthz
 ```
 
 To stop the service:
